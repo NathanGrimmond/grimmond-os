@@ -1,0 +1,17 @@
+import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { ContactsClient } from './_components/ContactsClient'
+import type { Contact } from '@/types/database'
+
+export default async function ContactsPage() {
+  const supabase = await createClient()
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  if (!authUser) redirect('/login')
+
+  const { data: contacts } = await supabase
+    .from('contacts')
+    .select('*')
+    .order('name')
+
+  return <ContactsClient contacts={(contacts ?? []) as Contact[]} />
+}
