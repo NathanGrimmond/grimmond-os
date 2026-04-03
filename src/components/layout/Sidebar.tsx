@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   FolderOpen,
+  FileText,
   Users,
   Settings,
   Menu,
@@ -19,6 +20,7 @@ import type { User } from '@/types/database'
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/projects', label: 'Projects', icon: FolderOpen },
+  { href: '/tenders', label: 'Tenders', icon: FileText },
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

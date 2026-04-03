@@ -6,6 +6,11 @@ import { STATUS_COLOURS, STATUS_LABELS } from '@/lib/constants'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { CostingTab } from './_components/CostingTab'
 import { SubcontractsTab } from './_components/SubcontractsTab'
+import { PurchaseOrdersTab } from './_components/PurchaseOrdersTab'
+import { ClaimsTab } from './_components/ClaimsTab'
+import { VariationsTab } from './_components/VariationsTab'
+import { DocumentsTab } from './_components/DocumentsTab'
+import { RFIsTab } from './_components/RFIsTab'
 import { MapPin, Calendar, DollarSign } from 'lucide-react'
 
 interface PageProps {
@@ -40,11 +45,38 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const totalActual = costItems?.reduce((s, i) => s + (i.actual ?? 0), 0) ?? 0
   const variance = totalBudgeted - totalActual
 
+  const { data: variations } = isOwnerOrOffice
+    ? await supabase.from('variations').select('amount, status').eq('project_id', id)
+    : { data: [] }
+
+  const approvedVariationsTotal = variations?.filter(v => v.status === 'approved').reduce((s, v) => s + (v.amount ?? 0), 0) ?? 0
+  const adjustedContractValue = (project.contract_value ?? 0) + approvedVariationsTotal
+
+  const { data: claims } = isOwnerOrOffice
+    ? await supabase.from('progress_claims').select('amount_claimed, amount_certified, amount_paid, status').eq('project_id', id)
+    : { data: [] }
+
+  const totalClaimed = claims?.reduce((s, c) => s + (c.amount_claimed ?? 0), 0) ?? 0
+  const totalCertified = claims?.reduce((s, c) => s + (c.amount_certified ?? 0), 0) ?? 0
+
+  const { data: openRFIs } = await supabase.from('rfis').select('id').eq('project_id', id).eq('status', 'open')
+  const { data: pendingVars } = isOwnerOrOffice
+    ? await supabase.from('variations').select('id').eq('project_id', id).eq('status', 'pending')
+    : { data: [] }
+  const { data: openPOs } = isOwnerOrOffice
+    ? await supabase.from('purchase_orders').select('id').eq('project_id', id).neq('status', 'complete')
+    : { data: [] }
+
   const tabs = [
     { key: 'overview', label: 'Overview' },
     ...(isOwnerOrOffice ? [
       { key: 'costing', label: 'Job Costing' },
-      { key: 'subcontracts', label: 'Subcontractors' },
+      { key: 'subcontracts', label: 'Subcontracts' },
+      { key: 'purchase-orders', label: 'Purchase Orders' },
+      { key: 'claims', label: 'Progress Claims' },
+      { key: 'variations', label: 'Variations' },
+      { key: 'documents', label: 'Documents' },
+      { key: 'rfis', label: 'RFIs' },
     ] : []),
   ]
 
@@ -77,12 +109,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b border-gray-200 mb-6">
+      <div className="flex gap-0 border-b border-gray-200 mb-6 overflow-x-auto">
         {tabs.map(t => (
           <Link
             key={t.key}
             href={`/projects/${id}?tab=${t.key}`}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap ${
               tab === t.key
                 ? 'border-zinc-900 text-zinc-900'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -108,6 +140,47 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               />
             </>
           )}
+          {isOwnerOrOffice && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5 md:col-span-3">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-4">Financial Summary</p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs text-gray-400">Contract Value</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(project.contract_value)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Approved Variations</p>
+                  <p className={`text-lg font-bold ${approvedVariationsTotal >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatCurrency(approvedVariationsTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Adjusted Contract Value</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(adjustedContractValue)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Total Claimed</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(totalClaimed)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Total Certified</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(totalCertified)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Balance Remaining</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(adjustedContractValue - totalCertified)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {((openRFIs?.length ?? 0) > 0 || (pendingVars?.length ?? 0) > 0 || (openPOs?.length ?? 0) > 0) ? (
+            <div className="bg-white border border-gray-200 rounded-xl p-5 md:col-span-3">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Activity</p>
+              <div className="flex flex-wrap gap-4">
+                {(openRFIs?.length ?? 0) > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-amber-700">{openRFIs?.length}</span> open RFI{openRFIs?.length !== 1 ? 's' : ''}</p>}
+                {(pendingVars?.length ?? 0) > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-amber-700">{pendingVars?.length}</span> pending variation{pendingVars?.length !== 1 ? 's' : ''}</p>}
+                {(openPOs?.length ?? 0) > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-blue-700">{openPOs?.length}</span> open PO{openPOs?.length !== 1 ? 's' : ''}</p>}
+              </div>
+            </div>
+          ) : null}
           {project.client && (
             <div className="bg-white border border-gray-200 rounded-xl p-5 md:col-span-3">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Client</p>
@@ -132,6 +205,26 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
 
       {tab === 'subcontracts' && isOwnerOrOffice && (
         <SubcontractsTab projectId={id} />
+      )}
+
+      {tab === 'purchase-orders' && isOwnerOrOffice && (
+        <PurchaseOrdersTab projectId={id} />
+      )}
+
+      {tab === 'claims' && isOwnerOrOffice && (
+        <ClaimsTab projectId={id} />
+      )}
+
+      {tab === 'variations' && isOwnerOrOffice && (
+        <VariationsTab projectId={id} />
+      )}
+
+      {tab === 'documents' && (
+        <DocumentsTab projectId={id} />
+      )}
+
+      {tab === 'rfis' && (
+        <RFIsTab projectId={id} />
       )}
     </div>
   )
