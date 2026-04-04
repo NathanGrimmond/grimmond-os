@@ -45,27 +45,33 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const totalActual = costItems?.reduce((s, i) => s + (i.actual ?? 0), 0) ?? 0
   const variance = totalBudgeted - totalActual
 
-  const { data: variations } = isOwnerOrOffice
-    ? await supabase.from('variations').select('amount, status').eq('project_id', id)
-    : { data: [] }
+  // Phase 2 queries — wrapped so missing tables don't crash the page
+  const [variationsResult, claimsResult, openRFIsResult, pendingVarsResult, openPOsResult] = await Promise.allSettled([
+    isOwnerOrOffice
+      ? supabase.from('variations').select('amount, status').eq('project_id', id)
+      : Promise.resolve({ data: [] }),
+    isOwnerOrOffice
+      ? supabase.from('progress_claims').select('amount_claimed, amount_certified, amount_paid, status').eq('project_id', id)
+      : Promise.resolve({ data: [] }),
+    supabase.from('rfis').select('id').eq('project_id', id).eq('status', 'open'),
+    isOwnerOrOffice
+      ? supabase.from('variations').select('id').eq('project_id', id).eq('status', 'pending')
+      : Promise.resolve({ data: [] }),
+    isOwnerOrOffice
+      ? supabase.from('purchase_orders').select('id').eq('project_id', id).neq('status', 'complete')
+      : Promise.resolve({ data: [] }),
+  ])
 
-  const approvedVariationsTotal = variations?.filter(v => v.status === 'approved').reduce((s, v) => s + (v.amount ?? 0), 0) ?? 0
+  const variations = variationsResult.status === 'fulfilled' ? (variationsResult.value.data ?? []) : []
+  const claims = claimsResult.status === 'fulfilled' ? (claimsResult.value.data ?? []) : []
+  const openRFIs = openRFIsResult.status === 'fulfilled' ? (openRFIsResult.value.data ?? []) : []
+  const pendingVars = pendingVarsResult.status === 'fulfilled' ? (pendingVarsResult.value.data ?? []) : []
+  const openPOs = openPOsResult.status === 'fulfilled' ? (openPOsResult.value.data ?? []) : []
+
+  const approvedVariationsTotal = variations.filter((v: { status: string; amount: number }) => v.status === 'approved').reduce((s: number, v: { amount: number }) => s + (v.amount ?? 0), 0)
   const adjustedContractValue = (project.contract_value ?? 0) + approvedVariationsTotal
-
-  const { data: claims } = isOwnerOrOffice
-    ? await supabase.from('progress_claims').select('amount_claimed, amount_certified, amount_paid, status').eq('project_id', id)
-    : { data: [] }
-
-  const totalClaimed = claims?.reduce((s, c) => s + (c.amount_claimed ?? 0), 0) ?? 0
-  const totalCertified = claims?.reduce((s, c) => s + (c.amount_certified ?? 0), 0) ?? 0
-
-  const { data: openRFIs } = await supabase.from('rfis').select('id').eq('project_id', id).eq('status', 'open')
-  const { data: pendingVars } = isOwnerOrOffice
-    ? await supabase.from('variations').select('id').eq('project_id', id).eq('status', 'pending')
-    : { data: [] }
-  const { data: openPOs } = isOwnerOrOffice
-    ? await supabase.from('purchase_orders').select('id').eq('project_id', id).neq('status', 'complete')
-    : { data: [] }
+  const totalClaimed = claims.reduce((s: number, c: { amount_claimed: number }) => s + (c.amount_claimed ?? 0), 0)
+  const totalCertified = claims.reduce((s: number, c: { amount_certified: number | null }) => s + (c.amount_certified ?? 0), 0)
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
@@ -171,13 +177,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               </div>
             </div>
           )}
-          {((openRFIs?.length ?? 0) > 0 || (pendingVars?.length ?? 0) > 0 || (openPOs?.length ?? 0) > 0) ? (
+          {(openRFIs.length > 0 || pendingVars.length > 0 || openPOs.length > 0) ? (
             <div className="bg-white border border-gray-200 rounded-xl p-5 md:col-span-3">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Activity</p>
               <div className="flex flex-wrap gap-4">
-                {(openRFIs?.length ?? 0) > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-amber-700">{openRFIs?.length}</span> open RFI{openRFIs?.length !== 1 ? 's' : ''}</p>}
-                {(pendingVars?.length ?? 0) > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-amber-700">{pendingVars?.length}</span> pending variation{pendingVars?.length !== 1 ? 's' : ''}</p>}
-                {(openPOs?.length ?? 0) > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-blue-700">{openPOs?.length}</span> open PO{openPOs?.length !== 1 ? 's' : ''}</p>}
+                {openRFIs.length > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-amber-700">{openRFIs.length}</span> open RFI{openRFIs.length !== 1 ? 's' : ''}</p>}
+                {pendingVars.length > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-amber-700">{pendingVars.length}</span> pending variation{pendingVars.length !== 1 ? 's' : ''}</p>}
+                {openPOs.length > 0 && <p className="text-sm text-gray-600"><span className="font-semibold text-blue-700">{openPOs.length}</span> open PO{openPOs.length !== 1 ? 's' : ''}</p>}
               </div>
             </div>
           ) : null}
